@@ -12,21 +12,24 @@
 #include <set>
 #include <climits>
 #include <assert.h>
-
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
 using namespace std;
 
 vector<vector<int>> retrieveMatrix() {
     //vector<vector<int>> x(4, vector<int>(5, 1)); //change for input
-    // vector<vector<int>> x = {{1, 0}}; //works
-    // vector<vector<int>> x = {{0, 1}}; //works
-    // vector<vector<int>> x = {{1, 2, 3}, {3, 2, 1}}; //works, solution found
+    //vector<vector<int>> x = {{1, 0}}; //works
+    //vector<vector<int>> x = {{0, 1}}; //works
+    //vector<vector<int>> x = {{1, 2, 3}, {3, 2, 1}}; //works, solution found
     vector<vector<int>> x = {{0, 1, 2, 3}, 
                              {0, 0, 1, 3}, 
                              {1, 0, 0, 2}, 
                              {0, 1, 0, 2}}; //works, solution found
-    // vector<vector<int>> x = {{1, 2, 3, 4}};
+    //vector<vector<int>> x = {{1, 2, 3, 4}};
     //vector<vector<int>> x = {{0, 1, 2, 3}, {0, 0, 1, 3}, {1, 0, 0, 2}, {0, 1, 0, 2}};
-    // vector<vector<int>> x = {{1, 1, 0, 3}, {1, 2, 1, 3}};
+    //vector<vector<int>> x = {{1, 1, 0, 3}, {1, 2, 1, 3}};
     //vector<vector<int>> x = {{1, 2}, {3, 2}}; //works, no solution detected
     return x;
 }
@@ -85,6 +88,11 @@ class SolnVector {
         }
         cout << endl;
     }
+    void copySolnVector(SolnVector &s) {
+        for (int i = 1; i < vec.size(); i++) {
+            vec[i - 1] = s.get(i);
+        }
+    }
 };
 
 //pseudocode: m = numRows, n = numCols, x = solnVector
@@ -101,12 +109,19 @@ SolnVector Grigoriev_Algorithm(vector<vector<int>> &matrix);
 SolnVector AGG_Algorithm(vector<vector<int>> &matrix);
 void solve_Grigoriev(Matrix &matrix, SolnVector &x);
 void solve_AGG(Matrix &matrix, SolnVector &x);
+SolnVector G_and_AGG_Algorithm(vector<vector<int>> &matrix1);
+void Grigoriev_Parallel_Algorithm (vector<vector<int>> &matrix, mutex &mtx, 
+                                   condition_variable &cv, SolnVector &s, bool &proceed);
+void AGG_Parallel_Algorithm (vector<vector<int>> &mat, mutex &mtx, 
+                                   condition_variable &cv, SolnVector &s, bool &proceed);
+
 
 
 int main(int argc, char *argv[]) {
     vector<vector<int>> input_matrix = retrieveMatrix(); //input
     //SolnVector x1 = Grigoriev_Algorithm(input_matrix);
-    SolnVector x2 = AGG_Algorithm(input_matrix);
+    //SolnVector x2 = AGG_Algorithm(input_matrix);
+    SolnVector x3 = G_and_AGG_Algorithm(input_matrix);
     return 0;
 }
 
@@ -228,6 +243,7 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
     }
 }
 
+//TODO handle unsolvable case
 void solve_AGG(Matrix &matrix, SolnVector &x) {
     int m = matrix.rows(), n = matrix.cols();
     while (true) {
@@ -300,6 +316,95 @@ SolnVector AGG_Algorithm(vector<vector<int>> &matrix) {
 }
 
 
+
+
+
+/*
+Parallelized Algorithm:
+*/
+
+void Grigoriev_Parallel_Algorithm (vector<vector<int>> &matrix, mutex &mtx, 
+                                   condition_variable &cv, SolnVector &s, bool &proceed) {
+    return;
+}
+
+
+
+void AGG_Parallel_Algorithm (vector<vector<int>> &mat, mutex &mtx, 
+                                   condition_variable &cv, SolnVector &s, bool &proceed) {
+    int m = mat.size(), n = mat[0].size();
+    SolnVector x(n);
+    Matrix matrix(mat);
+    while (true) {
+
+        {
+            lock_guard<mutex> lock(mtx);
+            if (!proceed) return;
+        }
+
+        unordered_map<int, int> toAdd; //maps rows to lifting amount
+        for (int i = 1; i <= m; i++) {
+            pair<int, int> minimum_idx = {INT_MAX, -1};
+            bool unique = true;
+            for (int j = 1; j <= n; j++) {
+                int cur = matrix.get(i, j) + x.get(j);
+                if (cur == minimum_idx.first) {
+                    unique = false;
+                }
+                else if (cur < minimum_idx.first) {
+                    unique = true;
+                    minimum_idx = {cur, j};
+                }
+            }
+            if (unique) {
+                int nextMinimum = INT_MAX;
+                for (int j = 1; j <= n; j++) {
+                    if (j == minimum_idx.second) continue;
+                    int cur = matrix.get(i, j) + x.get(j);
+                    nextMinimum = min(nextMinimum, cur);
+                }
+                int amtToLift = nextMinimum - minimum_idx.first; //must be positive
+                int colToLift = minimum_idx.second;
+                if (toAdd.find(colToLift) == toAdd.end()) toAdd[colToLift] = amtToLift;
+                else toAdd[colToLift] = min(toAdd[colToLift], amtToLift);
+            }
+        }
+
+        if (toAdd.empty()) {
+            cout << "printing parallel AGG soln: ";
+            {
+                lock_guard<mutex> lock(mtx);
+                s.copySolnVector(x);
+                s.printSolution();
+                proceed = false;
+            }
+            return;
+        } //end condition
+
+        for (const auto &it : toAdd) {
+            int idx = it.first, amt = it.second;
+            x.add(idx, amt);
+        }
+    }
+}
+
+
+
+SolnVector G_and_AGG_Algorithm(vector<vector<int>> &matrix1) {
+    vector<vector<int>> matrix2 = matrix1; //deep copy
+    SolnVector s(matrix1[0].size()); //to be altered by exactly one thread
+    mutex mtx;
+    condition_variable cv;
+
+    bool proceed = true;
+    thread t1(Grigoriev_Parallel_Algorithm, ref(matrix1), ref(mtx), ref(cv), ref(s), ref(proceed));
+    thread t2(      AGG_Parallel_Algorithm, ref(matrix2), ref(mtx), ref(cv), ref(s), ref(proceed));
+
+    t1.join();
+    t2.join();
+
+    return s;
+}
 
 
 
