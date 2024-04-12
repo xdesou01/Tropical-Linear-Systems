@@ -19,12 +19,12 @@ vector<vector<int>> retrieveMatrix() {
     //vector<vector<int>> x(4, vector<int>(5, 1)); //change for input
     // vector<vector<int>> x = {{1, 0}}; //works
     // vector<vector<int>> x = {{0, 1}}; //works
-    //vector<vector<int>> x = {{1, 2, 3}, {3, 2, 1}}; //works, solution found
+    // vector<vector<int>> x = {{1, 2, 3}, {3, 2, 1}}; //works, solution found
     vector<vector<int>> x = {{0, 1, 2, 3}, 
                              {0, 0, 1, 3}, 
                              {1, 0, 0, 2}, 
                              {0, 1, 0, 2}}; //works, solution found
-    //vector<vector<int>> x = {{1, 2, 3, 4}};
+    // vector<vector<int>> x = {{1, 2, 3, 4}};
     //vector<vector<int>> x = {{0, 1, 2, 3}, {0, 0, 1, 3}, {1, 0, 0, 2}, {0, 1, 0, 2}};
     // vector<vector<int>> x = {{1, 1, 0, 3}, {1, 2, 1, 3}};
     //vector<vector<int>> x = {{1, 2}, {3, 2}}; //works, no solution detected
@@ -98,12 +98,15 @@ class SolnVector {
     //if |J| == n, fail (no solution as demonstrated by [dis]provable by contradiction)
     //otherwise, increment values in x as appropriate
 SolnVector Grigoriev_Algorithm(vector<vector<int>> &matrix);
+SolnVector AGG_Algorithm(vector<vector<int>> &matrix);
 void solve_Grigoriev(Matrix &matrix, SolnVector &x);
+void solve_AGG(Matrix &matrix, SolnVector &x);
 
 
 int main(int argc, char *argv[]) {
     vector<vector<int>> input_matrix = retrieveMatrix(); //input
-    SolnVector x = Grigoriev_Algorithm(input_matrix);
+    //SolnVector x1 = Grigoriev_Algorithm(input_matrix);
+    SolnVector x2 = AGG_Algorithm(input_matrix);
 //     vector<vector<int>> vec_matrix = retrieveMatrix(); //input
 //     Matrix matrix(vec_matrix);
 
@@ -339,7 +342,50 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
         }
         for (int j : J) x.add(j, a); //add 'a' to x at indices in j
     }
+}
 
+void solve_AGG(Matrix &matrix, SolnVector &x) {
+    int m = matrix.rows(), n = matrix.cols();
+    while (true) {
+        unordered_map<int, int> toAdd; //maps rows to lifting amount
+        for (int i = 1; i <= m; i++) {
+            pair<int, int> minimum_idx = {INT_MAX, -1};
+            bool unique = true;
+            for (int j = 1; j <= n; j++) {
+                int cur = matrix.get(i, j) + x.get(j);
+                if (cur == minimum_idx.first) {
+                    unique = false;
+                }
+                else if (cur < minimum_idx.first) {
+                    unique = true;
+                    minimum_idx = {cur, j};
+                }
+            }
+            if (unique) {
+                int nextMinimum = INT_MAX;
+                for (int j = 1; j <= n; j++) {
+                    if (j == minimum_idx.second) continue;
+                    int cur = matrix.get(i, j) + x.get(j);
+                    nextMinimum = min(nextMinimum, cur);
+                }
+                int amtToLift = nextMinimum - minimum_idx.first; //must be positive
+                int colToLift = minimum_idx.second;
+                if (toAdd.find(colToLift) == toAdd.end()) toAdd[colToLift] = amtToLift;
+                else toAdd[colToLift] = min(toAdd[colToLift], amtToLift);
+            }
+        }
+
+        if (toAdd.empty()) {
+            cout << "printing AGG soln: ";
+            x.printSolution();
+            return;
+        } //end condition
+
+        for (const auto &it : toAdd) {
+            int idx = it.first, amt = it.second;
+            x.add(idx, amt);
+        }
+    }
 }
 
 SolnVector Grigoriev_Algorithm(vector<vector<int>> &matrix) {
@@ -362,6 +408,12 @@ SolnVector Grigoriev_Algorithm(vector<vector<int>> &matrix) {
     return s;
 }
 
+SolnVector AGG_Algorithm(vector<vector<int>> &matrix) {
+    SolnVector s(matrix[0].size());
+    Matrix m(matrix);
+    solve_AGG(m, s);
+    return s;
+}
 
 
 
