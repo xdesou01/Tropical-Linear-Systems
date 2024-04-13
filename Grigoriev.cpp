@@ -95,7 +95,7 @@ class SolnVector {
     }
 };
 
-//pseudocode: m = numRows, n = numCols, x = solnVector
+// m = numRows, n = numCols, x = solnVector
 
 //do until solution is valid or invalid:
     //initialize J as empty set
@@ -114,7 +114,8 @@ void Grigoriev_Parallel_Algorithm (vector<vector<int>> &matrix, mutex &mtx,
                                    condition_variable &cv, SolnVector &s, bool &proceed);
 void AGG_Parallel_Algorithm (vector<vector<int>> &mat, mutex &mtx, 
                                    condition_variable &cv, SolnVector &s, bool &proceed);
-
+void solve_Grigoriev_parallel (Matrix &matrix, mutex &mtx, 
+                                   condition_variable &cv, SolnVector &x, bool &proceed);
 
 
 int main(int argc, char *argv[]) {
@@ -126,14 +127,10 @@ int main(int argc, char *argv[]) {
 }
 
 void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
-    cout << "before: ";
-    x.printSolution();
-    cout << endl;
     int m = matrix.rows(), n = matrix.cols();
     while (true) {
         unordered_set<int> J;
         for (int i = 1; i <= m; i++) {
-            //cout << "J SIZE2 = " << J.size() << endl;
             int curMin = INT_MAX;
             unordered_set<int> curMinColsNotInJ;
             for (int j = 1; j <= n; j++) {
@@ -146,12 +143,10 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
                 }
                 else if (curVal == curMin) {
                     insertIfNotInJ(j, J, curMinColsNotInJ);
-                    //cout << curMinColsNotInJ.size() << ", " << J.size() << endl;
                 }
             }
             if (curMinColsNotInJ.size() == 1) {
                 for (int j : curMinColsNotInJ) {
-                    //cout << "inserting: " << j << endl;
                     J.insert(j); //extend J with j, continue
                 }
             }
@@ -166,12 +161,6 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
             return;
         }
         if (k == 1) {
-
-//ASK ABOUT THIS
-// Now, let k = |J| < n. If k = 1, we add to x1 the number
-// min2≤j≤n{a1,j +xj}−(a1,1 +x1) ≥ 1 and obtain a solution of (0.1).
-// Thereupon, we apply Lemma 1.2 to the obtained solution; as a
-// result, the algorithm terminates the inductive step
 
 
 //J contains the only column that has a row (single) with a minimum. We just need to find the row and  
@@ -191,9 +180,6 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
                         if (j != finalJ) secondMin = min(secondMin, matrix.get(i, j) + x.get(j));      
                     }
                     x.add(finalJ, secondMin - jVal); //achieve final equality
-                    cout << "after: ";
-                    x.printSolution();
-                    cout << endl;
                     return;
                 }
             }
@@ -225,7 +211,6 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
             }
             if (valid) attractedRows.insert(i);
         }
-        //cout << "aRows size: " << attractedRows.size() << endl;
 
         //update x as necessary before continuing
         int a = INT_MAX, leftMin = INT_MAX, rightMin = INT_MAX;
@@ -295,16 +280,10 @@ SolnVector Grigoriev_Algorithm(vector<vector<int>> &matrix) {
 
     for (vector<int> r : matrix) {
         m.addRow(r);
-        cout << "before0, with cursize " << m.rows() << ": ";
-        s.printSolution();
-        cout << endl;
         solve_Grigoriev(m, s);
-        cout << "after0: ";
-        s.printSolution();
-        cout << endl;
-        // s.printSolution();
     }
-    // printSolution(s);
+    cout << "solution for Gregoriev_Algorithm: " << endl;
+    s.printSolution();
     return s;
 }
 
@@ -325,6 +304,142 @@ Parallelized Algorithm:
 
 void Grigoriev_Parallel_Algorithm (vector<vector<int>> &matrix, mutex &mtx, 
                                    condition_variable &cv, SolnVector &s, bool &proceed) {
+    SolnVector x(matrix[0].size());
+    vector<vector<int>> emptyMatrix = {};
+    Matrix m(emptyMatrix);
+
+    for (vector<int> r : matrix) {
+        {
+            cout << "got here xd" << endl;
+            lock_guard<mutex> lock(mtx);
+            if (!proceed) return;
+        }
+
+        m.addRow(r);
+        solve_Grigoriev_parallel(m, mtx, cv, x, proceed);
+    }
+
+    {
+        if (!proceed) return;
+
+        lock_guard<mutex> lock(mtx);
+        s.copySolnVector(x);
+        proceed = false;
+        return;
+    }
+
+    return;
+}
+
+//code is reused, with paralleization added for end conditions
+void solve_Grigoriev_parallel (Matrix &matrix, mutex &mtx, 
+                                   condition_variable &cv, SolnVector &x, bool &proceed) {
+    int m = matrix.rows(), n = matrix.cols();
+    while (true) {
+        {
+            lock_guard<mutex> lock(mtx);
+            if (!proceed) return;
+        }
+        unordered_set<int> J;
+        for (int i = 1; i <= m; i++) {
+            int curMin = INT_MAX;
+            unordered_set<int> curMinColsNotInJ;
+            for (int j = 1; j <= n; j++) {
+                int curVal = matrix.get(i, j) + x.get(j);
+                if (curVal < curMin) {
+                    curMin = curVal;
+                    curMinColsNotInJ.clear();
+                    insertIfNotInJ(j, J, curMinColsNotInJ);
+
+                }
+                else if (curVal == curMin) {
+                    insertIfNotInJ(j, J, curMinColsNotInJ);
+                }
+            }
+            if (curMinColsNotInJ.size() == 1) {
+                for (int j : curMinColsNotInJ) {
+                    J.insert(j); //extend J with j, continue
+                }
+            }
+        }
+
+        int k = J.size();
+        if (k == n) {
+            {
+                lock_guard<mutex> lock(mtx);
+                proceed = false;
+            }
+            cout << "there is no solution for this input" << endl;
+            return;
+        }
+        if (k == 0) { //solved already
+            return;
+        }
+        if (k == 1) {
+
+
+            int finalJ;
+            for (int row : J) finalJ = row; //weird syntax, but must happen exactly once because k == 1            //x.add(finalRow) += minRange(i, 2, n) - (matrix.get(1, 1) + 0); //TODO fix
+
+            for (int i = 1; i <= m; i++) {
+                int jVal = matrix.get(i, finalJ) + x.get(finalJ);
+                bool singleMin = true; //signifies whether the row has a single minimum
+                for (int j = 1; singleMin && j <= n; j++) {
+                    if (j != finalJ && jVal >= (matrix.get(i, j)) + x.get(j)) singleMin = false;       
+                }
+                if (singleMin) {
+                    int secondMin = INT_MAX;
+                    for (int j = 1; j <= n; j++) {
+                        if (j != finalJ) secondMin = min(secondMin, matrix.get(i, j) + x.get(j));      
+                    }
+                    x.add(finalJ, secondMin - jVal); //achieve final equality
+                    return;
+                }
+            }
+            
+            cout << "Error: no solution found in solution branch" << endl;
+            return;
+        }
+
+        //get attracted rows so far
+        unordered_set<int> attractedRows;
+        for (int i = 1; i <= m; i++) {
+            unordered_set<int> minCols;
+            int rowMinElem = INT_MAX;
+            for (int j = 1; j <= n; j++) {
+                int elem = matrix.get(i, j) + x.get(j);
+                if (elem < rowMinElem) {
+                    minCols = {j};
+                    rowMinElem = elem;
+                }
+                else if (elem == rowMinElem) {
+                    minCols.insert(j);
+                }
+            }
+            bool valid = true;
+            for (int minCol : minCols) { //this is inefficient, but it's okay for now
+                if (J.find(minCol) == J.end()) {
+                    valid = false;
+                    break;
+                }
+            }
+            if (valid) attractedRows.insert(i);
+        }
+
+        //update x as necessary before continuing
+        int a = INT_MAX, leftMin = INT_MAX, rightMin = INT_MAX;
+        for (int i : attractedRows) {
+            for (int j = 1; j <= n; j++) {
+                if (J.find(j) == J.end()) { //cols not in J, for leftMin calculation
+                    leftMin = min(leftMin, matrix.get(i, j) + x.get(j));
+                }
+                rightMin = min(rightMin, matrix.get(i, j) + x.get(j));
+            }
+            assert(leftMin - rightMin >= 1); //according to paper this must be true
+            a = min(a, leftMin - rightMin);
+        }
+        for (int j : J) x.add(j, a); //add 'a' to x at indices in j
+    }
     return;
 }
 
@@ -409,8 +524,6 @@ SolnVector G_and_AGG_Algorithm(vector<vector<int>> &matrix1) {
 
 
 
-//TODO define big intereger class to get ints of size 2^n  (or size b^n specifially)
+//TODO define big integer class to get ints of size 2^n  (or size b^n specifially)
 //also define randomizer for matrix of size m * n
 
-// Akian, Gaubert, Guterman
-// Davydowv
