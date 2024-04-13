@@ -1,4 +1,4 @@
-Code files for research on tropical linear systems with Professor Vladimir Podolskii. Some of the code in the file(s) might be unrefined.
+Code files for informal research with Professor Vladimir Podolskii on algorithms that solve tropical linear systems. Some of the code might be unrefined (dubious formatting, redundant procedures, poor modularity, etc).
 
 Current algorithms implemented:
 - Grigoriev's Algorithm
