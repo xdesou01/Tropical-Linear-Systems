@@ -16,6 +16,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
+#include <random>
+#include <time.h>
 using namespace std;
 
 vector<vector<int>> retrieveMatrix() {
@@ -23,14 +25,25 @@ vector<vector<int>> retrieveMatrix() {
     //vector<vector<int>> x = {{1, 0}}; //works
     //vector<vector<int>> x = {{0, 1}}; //works
     //vector<vector<int>> x = {{1, 2, 3}, {3, 2, 1}}; //works, solution found
-    vector<vector<int>> x = {{0, 1, 2, 3}, 
-                             {0, 0, 1, 3}, 
-                             {1, 0, 0, 2}, 
-                             {0, 1, 0, 2}}; //works, solution found
+    //vector<vector<int>> x = {{0, 1, 2, 3}, 
+                            //  {0, 0, 1, 3}, 
+                            //  {1, 0, 0, 2}, 
+                            //  {0, 1, 0, 2}}; //works, solution found
     //vector<vector<int>> x = {{1, 2, 3, 4}};
     //vector<vector<int>> x = {{0, 1, 2, 3}, {0, 0, 1, 3}, {1, 0, 0, 2}, {0, 1, 0, 2}};
     //vector<vector<int>> x = {{1, 1, 0, 3}, {1, 2, 1, 3}};
     //vector<vector<int>> x = {{1, 2}, {3, 2}}; //works, no solution detected
+
+    int numRows = 100, numCols = 101;
+    vector<vector<int>> x(numRows, vector<int>(numCols));
+    cout << endl;
+    for (int i = 0; i < numRows; i++) {
+        for (int j = 0; j < numCols; j++) {
+            x[i][j] = rand() % 1000;
+            //cout << x[i][j] << "  ";
+        }
+        //cout << endl;
+    }
     return x;
 }
 
@@ -68,16 +81,19 @@ class Matrix {
     void addRow(vector<int> &v) {
         mat.insert(mat.begin(), v);
     }
+    void fillRandom(int M) {return;} //TODO
 };
 
 class SolnVector {
     private:
     vector<int> vec;
+    int steps;
 
     public:
     SolnVector(int n) {
         vector<int> v(n, 0);
         vec = v;
+        steps = 0;
     }
     void add(int index, int val) {vec[index - 1] += val;}
     int get(int index) {return vec[index - 1];}
@@ -86,13 +102,14 @@ class SolnVector {
         for (int j = 0; j < vec.size(); j++) {
             cout << vec[j] << " ";
         }
-        cout << endl;
+        cout << "with numDescents = " << steps << endl;
     }
     void copySolnVector(SolnVector &s) {
         for (int i = 1; i < vec.size(); i++) {
             vec[i - 1] = s.get(i);
         }
     }
+    void incrementSteps() {steps++;}
 };
 
 // m = numRows, n = numCols, x = solnVector
@@ -119,16 +136,28 @@ void solve_Grigoriev_parallel (Matrix &matrix, mutex &mtx,
 
 
 int main(int argc, char *argv[]) {
-    vector<vector<int>> input_matrix = retrieveMatrix(); //input
-    //SolnVector x1 = Grigoriev_Algorithm(input_matrix);
+
+    for (int i = 0; i < 1; i++) {
+        vector<vector<int>> input_matrix = retrieveMatrix(); //input
+        SolnVector x1 = Grigoriev_Algorithm(input_matrix);
+    }
+    cout << endl << "next: " << endl << endl;
+
     //SolnVector x2 = AGG_Algorithm(input_matrix);
-    SolnVector x3 = G_and_AGG_Algorithm(input_matrix);
+    //SolnVector x3 = G_and_AGG_Algorithm(input_matrix);
     return 0;
 }
 
 void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
     int m = matrix.rows(), n = matrix.cols();
+    unordered_set<int> lifted;
     while (true) {
+        if (lifted.size() == n) {
+            cout << "all columns lifted, no solution" << endl;
+            return;
+        }
+        x.incrementSteps();
+        //cout << "incremented G" << endl;
         unordered_set<int> J;
         for (int i = 1; i <= m; i++) {
             int curMin = INT_MAX;
@@ -224,7 +253,10 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
             assert(leftMin - rightMin >= 1); //according to paper this must be true
             a = min(a, leftMin - rightMin);
         }
-        for (int j : J) x.add(j, a); //add 'a' to x at indices in j
+        for (int j : J) {
+            x.add(j, a); //add 'a' to x at indices in j
+            lifted.insert(j);
+        }
     }
 }
 
@@ -232,6 +264,8 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
 void solve_AGG(Matrix &matrix, SolnVector &x) {
     int m = matrix.rows(), n = matrix.cols();
     while (true) {
+        //cout << "cringe? " << endl;
+        x.incrementSteps();
         unordered_map<int, int> toAdd; //maps rows to lifting amount
         for (int i = 1; i <= m; i++) {
             pair<int, int> minimum_idx = {INT_MAX, -1};
@@ -279,10 +313,11 @@ SolnVector Grigoriev_Algorithm(vector<vector<int>> &matrix) {
     Matrix m(emptyMatrix);
 
     for (vector<int> r : matrix) {
+        //cout << "adding row" << endl; 
         m.addRow(r);
         solve_Grigoriev(m, s);
     }
-    cout << "solution for Gregoriev_Algorithm: " << endl;
+    //cout << "solution for Gregoriev_Algorithm: " << endl;
     s.printSolution();
     return s;
 }
@@ -310,7 +345,7 @@ void Grigoriev_Parallel_Algorithm (vector<vector<int>> &matrix, mutex &mtx,
 
     for (vector<int> r : matrix) {
         {
-            cout << "got here xd" << endl;
+            //cout << "got here xd" << endl;
             lock_guard<mutex> lock(mtx);
             if (!proceed) return;
         }
@@ -340,6 +375,8 @@ void solve_Grigoriev_parallel (Matrix &matrix, mutex &mtx,
             lock_guard<mutex> lock(mtx);
             if (!proceed) return;
         }
+        x.incrementSteps();
+        cout << "incremented G" << endl;
         unordered_set<int> J;
         for (int i = 1; i <= m; i++) {
             int curMin = INT_MAX;
@@ -451,12 +488,12 @@ void AGG_Parallel_Algorithm (vector<vector<int>> &mat, mutex &mtx,
     SolnVector x(n);
     Matrix matrix(mat);
     while (true) {
-
         {
             lock_guard<mutex> lock(mtx);
             if (!proceed) return;
         }
-
+        s.incrementSteps();
+        cout << "incremented AGG" << endl;
         unordered_map<int, int> toAdd; //maps rows to lifting amount
         for (int i = 1; i <= m; i++) {
             pair<int, int> minimum_idx = {INT_MAX, -1};
