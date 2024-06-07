@@ -20,7 +20,64 @@
 #include <time.h>
 using namespace std;
 
-vector<vector<int>> retrieveMatrix() {
+//TO COMPILE: `clang++ -lpthread tlc.cpp -o tlc`
+//TO RUN: ./tlc
+
+
+
+//TODO: explore distributions like Gaussian, Poisson, 2^x, normal
+
+vector<vector<int>> retrieveMatrixTrivial() {
+    vector<vector<int>> x = {{0, 1, 2, 3}, 
+                             {0, 0, 1, 3}, 
+                             {1, 0, 0, 2}, 
+                             {0, 1, 0, 2}}; //works, solution found
+    return x;
+}
+
+vector<vector<int>> retrieveMatrixGaussian(int numRows, int numCols, double mean) {
+    std::default_random_engine generator;
+    std::poisson_distribution<int> distribution(mean);
+    vector<vector<int>> x(numRows, vector<int>(numCols));
+    for (int i = 0; i < numRows; i++) {
+        for (int j = 0; j < numCols; j++) {
+            int cur = distribution(generator);
+            x[i][j] = cur;
+            //cout << x[i][j] << "  ";
+        }
+        //cout << endl;
+    }
+    return x;
+}
+
+vector<vector<int>> retrieveMatrixNormal(int numRows, int numCols, double mean, double stdev) {
+    std::default_random_engine generator;
+    std::normal_distribution<double> distribution(mean, stdev);
+    vector<vector<int>> x(numRows, vector<int>(numCols));
+    for (int i = 0; i < numRows; i++) {
+        for (int j = 0; j < numCols; j++) {
+            int cur = (int)distribution(generator);
+            x[i][j] = cur;
+            //cout << x[i][j] << "  ";
+        }
+        //cout << endl;
+    }
+    return x;
+}
+
+vector<vector<int>> retrieveMatrixRandomExp(int numRows, int numCols) {
+    vector<vector<int>> x(numRows, vector<int>(numCols));
+    for (int i = 0; i < numRows; i++) {
+        for (int j = 0; j < numCols; j++) {
+            x[i][j] = pow(2, rand() % 31);
+            cout << x[i][j] << "  ";
+        }
+        cout << endl;
+    }
+    return x;
+}
+
+vector<vector<int>> retrieveMatrixRandom(int numRows, int numCols, int modVal) {
     //vector<vector<int>> x(4, vector<int>(5, 1)); //change for input
     //vector<vector<int>> x = {{1, 0}}; //works
     //vector<vector<int>> x = {{0, 1}}; //works
@@ -34,12 +91,11 @@ vector<vector<int>> retrieveMatrix() {
     //vector<vector<int>> x = {{1, 1, 0, 3}, {1, 2, 1, 3}};
     //vector<vector<int>> x = {{1, 2}, {3, 2}}; //works, no solution detected
 
-    int numRows = 100, numCols = 101;
     vector<vector<int>> x(numRows, vector<int>(numCols));
     cout << endl;
     for (int i = 0; i < numRows; i++) {
         for (int j = 0; j < numCols; j++) {
-            x[i][j] = rand() % 1000;
+            x[i][j] = rand() % modVal;
             //cout << x[i][j] << "  ";
         }
         //cout << endl;
@@ -110,6 +166,7 @@ class SolnVector {
         }
     }
     void incrementSteps() {steps++;}
+    int getSteps() {return steps;}
 };
 
 // m = numRows, n = numCols, x = solnVector
@@ -124,7 +181,7 @@ class SolnVector {
     //otherwise, increment values in x as appropriate
 SolnVector Grigoriev_Algorithm(vector<vector<int>> &matrix);
 SolnVector AGG_Algorithm(vector<vector<int>> &matrix);
-void solve_Grigoriev(Matrix &matrix, SolnVector &x);
+bool solve_Grigoriev(Matrix &matrix, SolnVector &x);
 void solve_AGG(Matrix &matrix, SolnVector &x);
 SolnVector G_and_AGG_Algorithm(vector<vector<int>> &matrix1);
 void Grigoriev_Parallel_Algorithm (vector<vector<int>> &matrix, mutex &mtx, 
@@ -137,27 +194,36 @@ void solve_Grigoriev_parallel (Matrix &matrix, mutex &mtx,
 
 int main(int argc, char *argv[]) {
 
-    for (int i = 0; i < 1; i++) {
-        vector<vector<int>> input_matrix = retrieveMatrix(); //input
-        SolnVector x1 = Grigoriev_Algorithm(input_matrix);
+    //INTERESTING RESULTS (for purely "random" inputs): trip 1000, 1001, 99999 + i as parameters
+    //why are the answer numbers so small? M is bounded above by at least 99998?
+    for (int i = 0; i < 3; i++) {
+        //vector<vector<int>> input_matrix = retrieveMatrixRandom(1000, 1001, 99999 + i); //input
+        vector<vector<int>> input_matrix = retrieveMatrixRandomExp(3, 4);
+        SolnVector x1 = AGG_Algorithm(input_matrix);
+        cout << endl;
     }
-    cout << endl << "next: " << endl << endl;
+    //cout << endl << "next: " << endl << endl;
 
     //SolnVector x2 = AGG_Algorithm(input_matrix);
     //SolnVector x3 = G_and_AGG_Algorithm(input_matrix);
     return 0;
 }
 
-void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
+
+//NOTE: slight bugs, larger inputs (e.g. 6x8) sometimes result in overlifted or unfound solutions
+bool solve_Grigoriev(Matrix &matrix, SolnVector &x) {
     int m = matrix.rows(), n = matrix.cols();
     unordered_set<int> lifted;
     while (true) {
-        if (lifted.size() == n) {
-            cout << "all columns lifted, no solution" << endl;
-            return;
-        }
+        // if (lifted.size() == n) {
+        //     cout << "all columns lifted, no solution" << endl;
+        //     return false;
+        // }
         x.incrementSteps();
-        //cout << "incremented G" << endl;
+        if (x.getSteps() == 150000) {
+            cout << "dubious solution below:" << endl;
+            x.printSolution();
+        }
         unordered_set<int> J;
         for (int i = 1; i <= m; i++) {
             int curMin = INT_MAX;
@@ -184,10 +250,10 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
         int k = J.size();
         if (k == n) {
             cout << "there is no solution for this input" << endl;
-            return;
+            return false;
         }
         if (k == 0) { //solved already
-            return;
+            return true;
         }
         if (k == 1) {
 
@@ -209,11 +275,11 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
                         if (j != finalJ) secondMin = min(secondMin, matrix.get(i, j) + x.get(j));      
                     }
                     x.add(finalJ, secondMin - jVal); //achieve final equality
-                    return;
+                    return true;
                 }
             }
             cout << "Error: no solution found in solution branch" << endl;
-            return;
+            return false;
         }
 
         //get attracted rows so far
@@ -263,7 +329,12 @@ void solve_Grigoriev(Matrix &matrix, SolnVector &x) {
 //TODO handle unsolvable case
 void solve_AGG(Matrix &matrix, SolnVector &x) {
     int m = matrix.rows(), n = matrix.cols();
+    unordered_set<int> lifted;
     while (true) {
+        if (lifted.size() == n) {
+            cout << "all columns lifted, no solution" << endl;
+            return;
+        }
         //cout << "cringe? " << endl;
         x.incrementSteps();
         unordered_map<int, int> toAdd; //maps rows to lifting amount
@@ -303,6 +374,7 @@ void solve_AGG(Matrix &matrix, SolnVector &x) {
         for (const auto &it : toAdd) {
             int idx = it.first, amt = it.second;
             x.add(idx, amt);
+            lifted.insert(idx);
         }
     }
 }
@@ -311,14 +383,16 @@ SolnVector Grigoriev_Algorithm(vector<vector<int>> &matrix) {
     SolnVector s(matrix[0].size());
     vector<vector<int>> emptyMatrix = {};
     Matrix m(emptyMatrix);
-
+    
     for (vector<int> r : matrix) {
         //cout << "adding row" << endl; 
         m.addRow(r);
-        solve_Grigoriev(m, s);
+        // solve_Grigoriev(m, s);
     }
+    bool ans = solve_Grigoriev(m, s);
+
     //cout << "solution for Gregoriev_Algorithm: " << endl;
-    s.printSolution();
+    if (ans) s.printSolution();
     return s;
 }
 
